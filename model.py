@@ -1,4 +1,5 @@
 import os
+import random
 import time
 
 import torch
@@ -10,7 +11,8 @@ from block import ZeroPad, linear_dilated_model
 from dataset import check_mkdir, get_dataloader, get_dataset
 from image import plot_images
 from loss import distance
-import random
+
+torch.backends.cudnn.deterministic = True
 
 
 class Module(torch.nn.Module):
@@ -31,7 +33,7 @@ class Module(torch.nn.Module):
 
     def inverse(self, output: Tensor) -> Tensor:
         if output.size(1) != self.classes_overhead:
-            output = self.output_pad(output, 2*random.random()-0.5)
+            output = self.output_pad(output, 2 * random.random() - 0.5)
         for module in self.module_list[::-1]:
             output = module.inverse(output)
         return output[:, 0:3, :, :]
@@ -100,3 +102,4 @@ class Model:
                           f'- DeCensorLoss: {inverse_loss.item() / 2:.5f} '
                           f'| {idx / (time.time() - start_time):.2f} Batch/s',
                           end='')
+            print('')

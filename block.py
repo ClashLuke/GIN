@@ -159,18 +159,31 @@ def reversible_module(inf, outf, *args, stride=1, revnet=False, **kwargs):
 
 def linear_dilated_model(in_features, hidden_features, out_features=None, depth=4,
                          transpose=False, kernel_size=3, end=None, stride=1,
-                         blocks_per_level=1, heads=12, revnet=False, wrap=True):
+                         blocks_per_level=1, heads=12, revnet=False, wrap=True, target_coverage=1):
+    linear_block_count = 1
+    block_size = depth // linear_block_count
+
+    while block_size * (block_size + 1) * linear_block_count >= target_coverage:
+        linear_block_count += 1
+        block_size = depth // linear_block_count
+    linear_block_count -= 1
+    if not linear_block_count:
+        linear_block_count = 1
+
+    full_depth, residual_depth = depth // linear_block_count, depth % linear_block_count
+    blocks = (full_depth,) * linear_block_count + ((residual_depth,) if residual_depth else ())
+    blocks = tuple(1 + i for depth in blocks for i in range(depth))
+
     main = [reversible_module(hidden_features,
                               hidden_features,
-                              i * (not transpose) + 1,
+                              b * (not transpose) + 1,
                               transpose,
                               kernel_size,
                               heads,
-                              stride=stride * (1 - bool(j)),
                               revnet=revnet,
                               top_norm=bool(i) or in_features == hidden_features)
-            for i in range(depth)
-            for j in range(blocks_per_level)]
+            for b,i in enumerate(blocks)]
+
     if in_features != hidden_features:
         main.insert(0, PositionalSeparableConvolution(in_features, hidden_features))
     if out_features is not None and hidden_features != out_features:

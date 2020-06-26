@@ -16,12 +16,13 @@ torch.backends.cudnn.deterministic = True
 
 
 class Module(torch.nn.Module):
-    def __init__(self, classes, overhead=0, depth=8):
+    def __init__(self, classes, overhead=0, depth=8, target_coverage=1):
         super(Module, self).__init__()
         self.classes = classes
         classes += overhead
         self.classes_overhead = classes
-        layers = linear_dilated_model(classes, classes, depth=depth, wrap=False, revnet=True)
+        layers = linear_dilated_model(classes, classes, depth=depth, wrap=False, revnet=True,
+                                      target_coverage=target_coverage)
         layers.insert(0, ZeroPad(1, overhead))
         self.module_list = ModuleList(layers)
         self.output_pad = ZeroPad(1, overhead)
@@ -42,7 +43,7 @@ class Module(torch.nn.Module):
 class Model:
     def __init__(self, classes=3, overhead=29, depth=8, learning_rate=1e-4, betas=(0.5, 0.9), input_folder='data',
                  image_size=32, batch_size=256, output_folder='Output'):
-        self.module = Module(classes, overhead, depth)
+        self.module = Module(classes, overhead, depth, target_coverage=image_size)
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.module.to(self.device)
 

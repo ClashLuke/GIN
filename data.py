@@ -4,11 +4,19 @@ from torch.optim import AdamW as Optimizer
 
 
 def check_mkdir(dir_name):
+    """
+    Check if a directory exists, if not, create it
+    :param dir_name: Name of directory to check
+    :return: None
+    """
     if not os.path.exists(dir_name):
         os.mkdir(dir_name)
 
 
-class Folders:
+class FolderCtx:
+    """
+    Context object holding the names of relevant folders
+    """
     def __init__(self, output_folder='Output', decensored='Decensored', recensored='Recensored'):
         self.output = output_folder
         self.decensor = os.path.join(output_folder, decensored)
@@ -17,6 +25,9 @@ class Folders:
 
 
 class OptimizerCtx:
+    """
+    Context object holding data for optimizer
+    """
     def __init__(self,
                  lr=1e-5,
                  betas=(0.5, 0.9),
@@ -27,6 +38,9 @@ class OptimizerCtx:
 
 
 class DatasetCtx:
+    """
+    Context object holding data for dataset
+    """
     def __init__(self,
                  input_folder='data',
                  batch_size=256,
@@ -37,6 +51,9 @@ class DatasetCtx:
 
 
 class ModuleCtx:
+    """
+    Context object holding data required to create a InversibleModule
+    """
     def __init__(self,
                  classes=3,
                  overhead=13,

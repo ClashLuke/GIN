@@ -1,5 +1,6 @@
 import random
 import time
+from typing import Union
 
 import torch
 import torch.backends.cudnn
@@ -7,8 +8,8 @@ from torch import Tensor
 from torch.nn import ModuleList
 from torch.optim import AdamW as Optimizer
 
-from block import ZeroPad, linear_dilated_model
-from data import DatasetCtx, Folders, ModuleCtx, OptimizerCtx
+from block import ConstantPad, linear_dilated_model
+from data import DatasetCtx, FolderCtx, ModuleCtx, OptimizerCtx
 from dataset import get_dataloader, get_dataset
 from image import plot_images
 from loss import distance
@@ -16,27 +17,37 @@ from loss import distance
 torch.backends.cudnn.deterministic = True
 
 
-class Module(torch.nn.Module):
+class InvertibleModule(torch.nn.Module):
+    """
+    Fully invertible pytorch module with comfort functions to simply the "inverse" pass.
+    """
     def __init__(self, module_ctx: ModuleCtx):
-        super(Module, self).__init__()
+        super(InvertibleModule, self).__init__()
         self.classes = module_ctx.classes
         self.classes_overhead = module_ctx.classes + module_ctx.overhead
         layers = linear_dilated_model(self.classes_overhead,
-                                      self.classes_overhead,
                                       depth=module_ctx.depth,
-                                      wrap=False,
-                                      revnet=True,
                                       target_coverage=module_ctx.image_size)
-        layers.insert(0, ZeroPad(1, module_ctx.overhead))
+        layers.insert(0, ConstantPad(1, module_ctx.overhead))
         self.module_list = ModuleList(layers)
-        self.output_pad = ZeroPad(1, module_ctx.overhead)
+        self.output_pad = ConstantPad(1, module_ctx.overhead)
 
-    def forward(self, image_tensor: Tensor) -> Tensor:
+    def forward(self, input_tensor: Tensor) -> Tensor:
+        """
+        Function overwriting pytorch's forward method. Calculates a forward pass through the model (front to back).
+        :param input_tensor: Tensor used as input for the model
+        :return: Output classesd given by the model
+        """
         for module in self.module_list:
-            image_tensor = module(image_tensor)
-        return image_tensor[:, 0:self.classes, :, :]
+            input_tensor = module(input_tensor)
+        return input_tensor[:, 0:self.classes, :, :]
 
     def inverse(self, output: Tensor) -> Tensor:
+        """
+        Comfort function to pass from a tensor from the back to the front of the model.
+        :param output: "output" tensor used as input for the final layer
+        :return: "input" that would result in the given "output" tensor
+        """
         if output.size(1) != self.classes_overhead:
             output = self.output_pad(output, 2 * random.random() - 0.5)
         for module in self.module_list[::-1]:
@@ -65,12 +76,15 @@ def _init(module: torch.nn.Module):
 
 
 class Model:
+    """
+    Model wrapper accepting context objects and providing an easy-to-use API similar to that of well-known keras models.
+    """
     def __init__(self,
                  module_ctx=ModuleCtx(),
-                 folders=Folders(),
+                 folders=FolderCtx(),
                  dataset_ctx=DatasetCtx(),
                  optimizer_ctx=OptimizerCtx()):
-        self.module = Module(module_ctx)
+        self.module = InvertibleModule(module_ctx)
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.module.to(self.device)
         self.module.apply(_init)
@@ -78,7 +92,7 @@ class Model:
         self.opt: Optimizer = optimizer_ctx.optimizer(self.module.parameters(),
                                                       lr=optimizer_ctx.lr,
                                                       betas=optimizer_ctx.betas)
-        self.dataset: iter = get_dataloader(get_dataset(dataset_ctx.input_folder, self.image_size),
+        self.dataset: iter = get_dataloader(get_dataset(dataset_ctx.input_folder, module_ctx.image_size),
                                             dataset_ctx.batch_size, dataset_ctx.workers)
         self.image_size = module_ctx.image_size
         self.folders = folders
@@ -86,7 +100,14 @@ class Model:
     def __str__(self):
         return str(self.module)
 
-    def fit(self, epochs=None, print_interval=16, plot_interval=64):
+    def fit(self, epochs: Union[int, None] = None, print_interval=16, plot_interval=64):
+        """
+        Fit (train) network on data loader given at initialization
+        :param epochs: Number of epochs to train on
+        :param print_interval: Every how many batches to print loss
+        :param plot_interval: Every how many batches to plot generated images
+        :return: None
+        """
         epoch = 0
         while epochs is None or epoch < epochs:
             epoch += 1

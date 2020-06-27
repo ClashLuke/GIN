@@ -4,7 +4,12 @@ from torch.nn import BatchNorm1d, BatchNorm2d, Conv2d, ConvTranspose2d, Linear, 
 
 
 @torch.jit.script
-def mish(fn_input):
+def mish(fn_input: torch.Tensor) -> torch.Tensor:
+    """
+    Mish activation function: https://arxiv.org/abs/1908.08681
+    :param fn_input: tensor about to be activated
+    :return: activated tensor
+    """
     return torch.nn.functional.softplus(fn_input).tanh().mul(fn_input)
 
 
@@ -12,6 +17,12 @@ activation = mish
 
 
 def arange_like(dim: int, tensor: torch.Tensor) -> torch.Tensor:
+    """
+    Creates a pytorch range with shape similar to that of the input tensor, where the indexes go up along dim
+    :param dim: Dimension to index
+    :param tensor: Input tensor
+    :return: Index tensor
+    """
     out = torch.arange(1,
                        tensor.size(dim) + 1,
                        device=tensor.device,
@@ -26,15 +37,28 @@ def arange_like(dim: int, tensor: torch.Tensor) -> torch.Tensor:
 
 
 class Activate(Module):
+    """
+    Helper class to normalize and activate inputs
+    """
+
     def __init__(self, features: int):
         super(Activate, self).__init__()
         self.norm = BatchNorm2d(features)
 
     def forward(self, fn_input: torch.Tensor) -> torch.Tensor:
+        """
+        Function overwriting pytorch's forward method. Activates a tensor.
+        :param fn_input: Tensor about to be activated
+        :return: Activated tensor
+        """
         return activation(self.norm(fn_input))
 
 
 class SeparableConvolution(Module):
+    """
+    Depthwise separable convolution (or XCeption): https://arxiv.org/pdf/1610.02357.pdf
+    """
+
     def __init__(self, in_features: int, out_features: int, stride=1, dilation=1,
                  transpose=False, kernel_size=3):
         super(SeparableConvolution, self).__init__()
@@ -47,10 +71,19 @@ class SeparableConvolution(Module):
         self.point = Conv2d(in_features, out_features, 1)
 
     def forward(self, fn_input: torch.Tensor) -> torch.Tensor:
+        """
+        Function overwriting pytorch's forward method. Computes convolutions on input.
+        :param fn_input: Any tensor
+        :return: Output from convolution
+        """
         return self.point(activation(self.mid_norm(self.depth(fn_input))))
 
 
 class PositionalSeparableConvolution(SeparableConvolution):
+    """
+    XCeption with positional information
+    """
+
     def __init__(self, in_features: int, out_features: int, stride=1, dilation=1,
                  transpose=False, kernel_size=3):
         super(PositionalSeparableConvolution, self).__init__(4 + in_features,
@@ -59,6 +92,11 @@ class PositionalSeparableConvolution(SeparableConvolution):
                                                              transpose, kernel_size)
 
     def forward(self, fn_input: torch.Tensor) -> torch.Tensor:
+        """
+        Function overwriting pytorch's forward method. Computes convolutions on input.
+        :param fn_input: Any tensor
+        :return: Output from convolution
+        """
         batch, features, width, height = fn_input.size()
         width_range = arange_like(2, fn_input)
         height_range = arange_like(3, fn_input)
@@ -73,6 +111,12 @@ class PositionalSeparableConvolution(SeparableConvolution):
 
 
 class BasicModule(Module):
+    """
+    Doubled convolution with normalization between, optional input normalization and
+    optional multihead squeeze-excitation (similar to attention).
+    Doubled convolution is required as it's wrapped by residual or reversible blocks.
+    """
+
     def __init__(self, in_features, out_features, dilation, transpose, kernel_size,
                  heads, top_norm=True, stride=1):
         super(BasicModule, self).__init__()
@@ -97,6 +141,11 @@ class BasicModule(Module):
             self.att_proj_1 = Linear(in_features, out_features)
 
     def forward(self, fn_input: torch.Tensor) -> torch.Tensor:
+        """
+        Function overwriting pytorch's forward method. Computes convolutions on input.
+        :param fn_input: Any tensor
+        :return: Output from convolution
+        """
         batch, in_features, height, width = fn_input.size()
 
         if self.top_norm is not None:
@@ -124,13 +173,23 @@ class BasicModule(Module):
         return out
 
 
-class ZeroPad(Module):
+class ConstantPad(Module):
+    """
+    Pad _any_ dimension by a constant amount.
+    """
+
     def __init__(self, dim, amount):
-        super(ZeroPad, self).__init__()
+        super(ConstantPad, self).__init__()
         self.dim = dim
         self.amount = amount
 
     def forward(self, fn_input: torch.Tensor, pad=0) -> torch.Tensor:
+        """
+        Function overwriting pytorch's forward method. Pads input tensor at given dimension with pad value.
+        :param fn_input: Any tensor
+        :param pad: Constant value to pad with
+        :return: Padded tensor
+        """
         size = list(fn_input.size())
         size[self.dim] = self.amount
         pad = torch.zeros(size, device=fn_input.device, requires_grad=False) + pad
@@ -138,7 +197,12 @@ class ZeroPad(Module):
         return out
 
     def inverse(self, fn_input: torch.Tensor) -> torch.Tensor:
-        return fn_input[:, 0:3, :, :]
+        """
+        Inverse padding (removal of previously added padding)
+        :param fn_input: Any tensor
+        :return: Un-padded tensor
+        """
+        return torch.cat([fn_input.select(self.dim, i) for i in range(fn_input.size(self.dim) - self.amount)], self.dim)
 
     def __str__(self):
         return f'{type(self).__name__}({self.dim}, {self.amount})'
@@ -147,7 +211,17 @@ class ZeroPad(Module):
         return str(self)
 
 
-def reversible_module(inf, outf, *args, stride=1, revnet=False, **kwargs):
+def reversible_module(inf, outf, *args, stride=1, revnet=False, **kwargs) -> Module:
+    """
+    Create a reversible BasicModule with given parameters
+    :param inf: Input features
+    :param outf: Output features
+    :param args: Other positional arguments passed to BasicModule
+    :param stride: Stride
+    :param revnet: Whether to try using revnet architecture
+    :param kwargs: Keyword arguments passed to BasicModule
+    :return: Created Module
+    """
     if revnet and stride == 1:
         inf //= 2
         outf //= 2
@@ -157,9 +231,17 @@ def reversible_module(inf, outf, *args, stride=1, revnet=False, **kwargs):
     return module
 
 
-def linear_dilated_model(in_features, hidden_features, out_features=None, depth=4,
-                         transpose=False, kernel_size=3, end=None, stride=1,
-                         blocks_per_level=1, heads=12, revnet=False, wrap=True, target_coverage=1):
+def linear_dilated_model(features, depth=4, transpose=False, kernel_size=3, heads=12, target_coverage=1):
+    """
+    Create a full model with linearly increasing dilation
+    :param features: Number of features used throughout the model
+    :param depth: Number of blocks (not layers!) in the model
+    :param transpose: Whether all convolutions are transposed or not
+    :param kernel_size: Size of convolution kernel
+    :param heads: Number of heads used in BasicModule attention (0 = off)
+    :param target_coverage: Target coverage area, used to calculate dilation
+    :return: List of reversible blocks
+    """
     linear_block_count = 1
     block_size = depth // linear_block_count
 
@@ -172,24 +254,14 @@ def linear_dilated_model(in_features, hidden_features, out_features=None, depth=
 
     full_depth, residual_depth = depth // linear_block_count, depth % linear_block_count
     blocks = (full_depth,) * linear_block_count + ((residual_depth,) if residual_depth else ())
-    blocks = tuple(1 + i for depth in blocks for i in range(depth))
 
-    main = [reversible_module(hidden_features,
-                              hidden_features,
-                              b * (not transpose) + 1,
+    main = [reversible_module(features,
+                              features,
+                              (b + 1) * (not transpose) + 1,
                               transpose,
                               kernel_size,
                               heads,
-                              revnet=revnet,
-                              top_norm=bool(i) or in_features == hidden_features)
-            for b,i in enumerate(blocks)]
-
-    if in_features != hidden_features:
-        main.insert(0, PositionalSeparableConvolution(in_features, hidden_features))
-    if out_features is not None and hidden_features != out_features:
-        main.append(PositionalSeparableConvolution(hidden_features, out_features))
-    if end is not None:
-        main.append(end)
-    if wrap:
-        main = torch.nn.Sequential(*main)
+                              revnet=True,
+                              top_norm=bool(i))
+            for b, i in enumerate(i for depth in blocks for i in range(depth))]
     return main

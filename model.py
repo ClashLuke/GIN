@@ -136,7 +136,7 @@ class DecensorModel:
                 if idx % print_interval == 0:
                     print(f'\r[{epoch}][{idx:{item_count_len}d}/{item_count}] '
                           + f'CensorLoss: {forward_loss.item():.5f} '
-                          + (f'- DeCensorLoss: {inverse_loss.item() / 2:.5f} ' if reverse else '')
+                          + (f'- DeCensorLoss: {inverse_loss.item():.5f} ' if reverse else '')
                           + f'| {idx / (time.time() - start_time):.2f} Batch/s',
                           end='')
             print('')
@@ -199,7 +199,7 @@ class GIN:
                 if idx % print_interval == 0:
                     print(f'\r[{epoch}][{idx:{item_count_len}d}/{item_count}] '
                           f'CensorLoss: {forward_loss.item():.5f} '
-                          f'- DeCensorLoss: {inverse_loss.item() / 2:.5f} '
+                          f'- DeCensorLoss: {inverse_loss.item():.5f} '
                           f'| {idx / (time.time() - start_time):.2f} Batch/s',
                           end='')
             print('')

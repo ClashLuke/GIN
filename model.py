@@ -12,7 +12,7 @@ from block import ConstantPad, linear_dilated_model
 from data import DatasetCtx, FolderCtx, ModuleCtx, OptimizerCtx
 from dataset import get_dataloader, get_dataset
 from image import plot_images
-from loss import distance
+from loss import distance, hinge
 
 torch.backends.cudnn.deterministic = True
 
@@ -21,6 +21,7 @@ class InvertibleModule(torch.nn.Module):
     """
     Fully invertible pytorch module with comfort functions to simply the "inverse" pass.
     """
+
     def __init__(self, module_ctx: ModuleCtx):
         super(InvertibleModule, self).__init__()
         self.classes = module_ctx.classes
@@ -56,9 +57,9 @@ class InvertibleModule(torch.nn.Module):
 
 
 def _call_model(fn_input: torch.Tensor, target_output: torch.Tensor, function: torch.nn.Module.__call__,
-                optimizer: torch.optim.AdamW) -> (torch.Tensor, torch.Tensor):
+                optimizer: torch.optim.AdamW, loss_fn=distance) -> (torch.Tensor, torch.Tensor):
     fn_output = function(fn_input)
-    loss = distance(fn_output, target_output)
+    loss = loss_fn(fn_output, target_output)
     loss.backward()
     optimizer.step()
     return fn_output.detach(), loss
@@ -75,10 +76,11 @@ def _init(module: torch.nn.Module):
         torch.nn.init.constant_(module.bias.data, 0)
 
 
-class Model:
+class DecensorModel:
     """
-    Model wrapper accepting context objects and providing an easy-to-use API similar to that of well-known keras models.
+    DecensorModel wrapper accepting context objects and providing an easy-to-use API similar to that of well-known keras models.
     """
+
     def __init__(self,
                  module_ctx=ModuleCtx(),
                  folders=FolderCtx(),
@@ -131,6 +133,70 @@ class Model:
                     plot_images(self.folders.decensor, decensored_out, epoch, idx)
                     if reverse:
                         plot_images(self.folders.recensor, recensored_out, epoch, idx)
+                if idx % print_interval == 0:
+                    print(f'\r[{epoch}][{idx:{item_count_len}d}/{item_count}] '
+                          + f'CensorLoss: {forward_loss.item():.5f} '
+                          + (f'- DeCensorLoss: {inverse_loss.item() / 2:.5f} ' if reverse else '')
+                          + f'| {idx / (time.time() - start_time):.2f} Batch/s',
+                          end='')
+            print('')
+
+
+class GIN:
+    """
+    Generative Inversible Network
+    """
+
+    def __init__(self,
+                 module_ctx=ModuleCtx(),
+                 folders=FolderCtx(),
+                 dataset_ctx=DatasetCtx(),
+                 optimizer_ctx=OptimizerCtx()):
+        self.module = InvertibleModule(module_ctx)
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.module.to(self.device)
+        self.module.apply(_init)
+
+        self.opt: Optimizer = optimizer_ctx.optimizer(self.module.parameters(),
+                                                      lr=optimizer_ctx.lr,
+                                                      betas=optimizer_ctx.betas)
+        self.dataset: iter = get_dataloader(get_dataset(dataset_ctx.input_folder, module_ctx.image_size),
+                                            dataset_ctx.batch_size, dataset_ctx.workers)
+        self.image_size = module_ctx.image_size
+        self.folders = folders
+
+    def __str__(self):
+        return str(self.module)
+
+    def fit(self, epochs: Union[int, None] = None, print_interval=16, plot_interval=64, reverse=True):
+        """
+        Fit (train) network on data loader given at initialization
+        :param epochs: Number of epochs to train on
+        :param print_interval: Every how many batches to print loss
+        :param plot_interval: Every how many batches to plot generated images
+        :param reverse: Whether to do a reverse pass through the model
+        :return: None
+        """
+        epoch = 0
+        while epochs is None or epoch < epochs:
+            epoch += 1
+            start_time = time.time()
+            item_count = str(len(self.dataset))
+            item_count_len = len(item_count)
+            out_0 = -torch.ones((1, 3, 1, 1), device=self.device)
+            out_1 = out_0.clone()
+            out_0[:, 0, :, :] += 2
+            out_1[:, 1, :, :] += 2
+            for idx, ((censored, original), _) in enumerate(self.dataset, 1):
+                censored = censored.to(self.device)
+                original = original.to(self.device)
+
+                decensored_out, forward_loss = _call_model(original, out_0, self.module.__call__, self.opt, hinge)
+                recensored_out, inverse_loss = _call_model(censored, out_1, self.module.__call__, self.opt, hinge)
+
+                if idx % plot_interval == 0:
+                    plot_images(self.folders.decensor, self.module.inverse(out_0), epoch, idx)
+                    plot_images(self.folders.recensor, self.module.inverse(out_1), epoch, idx)
                 if idx % print_interval == 0:
                     print(f'\r[{epoch}][{idx:{item_count_len}d}/{item_count}] '
                           + f'CensorLoss: {forward_loss.item():.5f} '

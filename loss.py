@@ -9,10 +9,10 @@ def distance(tensor_x, tensor_y):
     return (tensor_x - tensor_y).abs().mean()
 
 
-def hinge(tensor):
+def hinge(tensor_x, tensor_y):
     """
     _Inverted_ hinge loss, where tensor has to be negated manually.
     :param tensor: Input tensor used for hinge loss
     :return: Mean loss
     """
-    return (1 + tensor).clamp(min=0).mean()
+    return (1 - (tensor_x*tensor_y)).clamp(min=0).mean()

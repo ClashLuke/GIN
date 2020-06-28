@@ -100,12 +100,13 @@ class Model:
     def __str__(self):
         return str(self.module)
 
-    def fit(self, epochs: Union[int, None] = None, print_interval=16, plot_interval=64):
+    def fit(self, epochs: Union[int, None] = None, print_interval=16, plot_interval=64, reverse=True):
         """
         Fit (train) network on data loader given at initialization
         :param epochs: Number of epochs to train on
         :param print_interval: Every how many batches to print loss
         :param plot_interval: Every how many batches to plot generated images
+        :param reverse: Whether to do a reverse pass through the model
         :return: None
         """
         epoch = 0
@@ -117,20 +118,23 @@ class Model:
             for idx, ((censored, original), _) in enumerate(self.dataset, 1):
                 censored = censored.to(self.device)
                 original = original.to(self.device)
-                censored_clone = censored.clone()
-                original_clone = original.clone()
+                if reverse:
+                    censored_clone = censored.clone()
+                    original_clone = original.clone()
 
                 decensored_out, forward_loss = _call_model(original, censored, self.module.__call__, self.opt)
-                recensored_out, inverse_loss = _call_model(censored_clone, original_clone, self.module.inverse,
-                                                           self.opt)
+                if reverse:
+                    recensored_out, inverse_loss = _call_model(censored_clone, original_clone, self.module.inverse,
+                                                               self.opt)
 
                 if idx % plot_interval == 0:
                     plot_images(self.folders.decensor, decensored_out, epoch, idx)
-                    plot_images(self.folders.recensor, recensored_out, epoch, idx)
+                    if reverse:
+                        plot_images(self.folders.recensor, recensored_out, epoch, idx)
                 if idx % print_interval == 0:
                     print(f'\r[{epoch}][{idx:{item_count_len}d}/{item_count}] '
                           f'CensorLoss: {forward_loss.item():.5f} '
-                          f'- DeCensorLoss: {inverse_loss.item() / 2:.5f} '
+                          f'- DeCensorLoss: {inverse_loss.item() / 2:.5f} ' if reverse else ''
                           f'| {idx / (time.time() - start_time):.2f} Batch/s',
                           end='')
             print('')

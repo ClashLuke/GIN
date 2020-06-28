@@ -50,7 +50,7 @@ class InvertibleModule(torch.nn.Module):
         :return: "input" that would result in the given "output" tensor
         """
         if output.size(1) != self.classes_overhead:
-            output = self.output_pad(output, 2 * random.random() - 0.5)
+            output = self.output_pad(output)
         for module in self.module_list[::-1]:
             output = module.inverse(output)
         return output[:, 0:3, :, :]
@@ -168,13 +168,12 @@ class GIN:
     def __str__(self):
         return str(self.module)
 
-    def fit(self, epochs: Union[int, None] = None, print_interval=16, plot_interval=64, reverse=True):
+    def fit(self, epochs: Union[int, None] = None, print_interval=16, plot_interval=64):
         """
         Fit (train) network on data loader given at initialization
         :param epochs: Number of epochs to train on
         :param print_interval: Every how many batches to print loss
         :param plot_interval: Every how many batches to plot generated images
-        :param reverse: Whether to do a reverse pass through the model
         :return: None
         """
         epoch = 0
@@ -195,12 +194,12 @@ class GIN:
                 recensored_out, inverse_loss = _call_model(censored, out_1, self.module.__call__, self.opt, hinge)
 
                 if idx % plot_interval == 0:
-                    plot_images(self.folders.decensor, self.module.inverse(out_0), epoch, idx)
-                    plot_images(self.folders.recensor, self.module.inverse(out_1), epoch, idx)
+                    plot_images(self.folders.decensor, self.module.inverse(out_0.expand_as(censored)), epoch, idx)
+                    plot_images(self.folders.recensor, self.module.inverse(out_1.expand_as(censored)), epoch, idx)
                 if idx % print_interval == 0:
                     print(f'\r[{epoch}][{idx:{item_count_len}d}/{item_count}] '
-                          + f'CensorLoss: {forward_loss.item():.5f} '
-                          + (f'- DeCensorLoss: {inverse_loss.item() / 2:.5f} ' if reverse else '')
-                          + f'| {idx / (time.time() - start_time):.2f} Batch/s',
+                          f'CensorLoss: {forward_loss.item():.5f} '
+                          f'- DeCensorLoss: {inverse_loss.item() / 2:.5f} '
+                          f'| {idx / (time.time() - start_time):.2f} Batch/s',
                           end='')
             print('')

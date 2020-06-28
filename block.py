@@ -173,17 +173,17 @@ class BasicModule(Module):
         return out
 
 
-class ConstantPad(Module):
+class RandomPad(Module):
     """
     Pad _any_ dimension by a constant amount.
     """
 
     def __init__(self, dim, amount):
-        super(ConstantPad, self).__init__()
+        super(RandomPad, self).__init__()
         self.dim = dim
         self.amount = amount
 
-    def forward(self, fn_input: torch.Tensor, pad=0) -> torch.Tensor:
+    def forward(self, fn_input: torch.Tensor) -> torch.Tensor:
         """
         Function overwriting pytorch's forward method. Pads input tensor at given dimension with pad value.
         :param fn_input: Any tensor
@@ -192,7 +192,7 @@ class ConstantPad(Module):
         """
         size = list(fn_input.size())
         size[self.dim] = self.amount
-        pad = torch.zeros(size, device=fn_input.device, requires_grad=False) + pad
+        pad = torch.randn(size, device=fn_input.device, requires_grad=False)
         out = torch.cat([fn_input, pad], self.dim)
         return out
 

@@ -1,0 +1,3 @@
+Repository to illustrate the power of properly implemented attention combined with (dilated) convolutions to successfully replace transformers and other bullshit.\
+Additionally the code shows that invertible models with forward and backward pass learn significantly faster and have better final results than models simply passing in one direction.\
+Finally, the code also has parts similar to OpenAI's Glow, where an EBM trained to classify images is reversed to then generate new images.
